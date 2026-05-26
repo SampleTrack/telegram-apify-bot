@@ -1,0 +1,35 @@
+services:
+  - type: worker          # Worker = always running, no sleep on free tier
+    name: apify-deal-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: CHANNEL_ID
+        sync: false
+      - key: OWNER_ID
+        sync: false
+      - key: APIFY_TOKEN
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: DB_NAME
+        value: apify_bot
+      - key: REDIS_URL
+        sync: false
+      - key: AUTO_POST_INTERVAL_HOURS
+        value: "6"
+      - key: DEFAULT_DEAL_KEYWORDS
+        value: "smartphone deals,earbuds offer,smartwatch sale"
+      - key: MIN_DISCOUNT_PERCENT
+        value: "10"
+      - key: MAX_RESULTS
+        value: "5"
+      - key: CACHE_TTL
+        value: "3600"
