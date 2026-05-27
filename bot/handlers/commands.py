@@ -279,10 +279,22 @@ def register_handlers(app: Client):
         db = get_db()
         tracked_count = await db["tracked_products"].count_documents({})
         search_count = await db["search_history"].count_documents({})
+        posted_count = await db["posted_deals"].count_documents({})
         await message.reply(
             f"📊 **Bot Stats**\n\n"
             f"📌 Tracked products: **{tracked_count}**\n"
-            f"🔍 Total searches: **{search_count}**"
+            f"🔍 Total searches: **{search_count}**\n"
+            f"📢 Deals posted: **{posted_count}**"
         )
+
+    # ── Admin: /apifyusage ────────────────────────────────
+    @app.on_message(filters.command("apifyusage") & filters.user(OWNER_ID))
+    async def apify_usage_cmd(client: Client, message: Message):
+        """Show Apify account usage, credits remaining, and recent runs."""
+        status = await message.reply("⏳ Fetching Apify usage...")
+        from bot.services.apify_stats import get_usage_stats, format_usage_message
+        stats = await get_usage_stats()
+        text = format_usage_message(stats)
+        await status.edit(text)
 
     logger.info("All handlers registered ✅")
