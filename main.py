@@ -1,13 +1,15 @@
 import asyncio
 import logging
+import os
 import signal
 import sys
 
 from bot.client import create_client
 from bot.handlers.commands import register_handlers
 from bot.scheduler.jobs import setup_scheduler
+from bot.health import start_health_server
 
-# ── Logging setup ─────────────────────────────────────────
+# ── Logging ───────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -16,24 +18,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Silence noisy libs
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("aiohttp").setLevel(logging.WARNING)
 
 
 async def main():
     logger.info("🚀 Starting Apify Deal Bot...")
+
+    # Start health server (required for Render Web Service)
+    port = int(os.getenv("PORT", 8000))
+    health_runner = await start_health_server(port)
 
     app = create_client()
     register_handlers(app)
 
     async with app:
         logger.info("✅ Bot connected to Telegram")
-
         scheduler = setup_scheduler(app)
 
-        # Graceful shutdown on SIGINT / SIGTERM
         stop_event = asyncio.Event()
 
         def _stop(*_):
@@ -44,12 +48,13 @@ async def main():
             try:
                 asyncio.get_event_loop().add_signal_handler(sig, _stop)
             except NotImplementedError:
-                pass  # Windows doesn't support add_signal_handler
+                pass
 
         logger.info("🤖 Bot is running. Press Ctrl+C to stop.")
         await stop_event.wait()
 
         scheduler.shutdown(wait=False)
+        await health_runner.cleanup()
         logger.info("👋 Bot stopped cleanly.")
 
 
