@@ -1,201 +1,161 @@
-from config import MIN_DISCOUNT_PERCENT
+from datetime import datetime
+import pytz
+
+IST = pytz.timezone("Asia/Kolkata")
 
 
-# ── Deal Scoring ──────────────────────────────────────────
+def _now() -> datetime:
+    return datetime.now(IST)
 
-def score_deal(product: dict) -> float:
-    """
-    Score a product as a deal (higher = better).
-    Formula: discount% (50%) + rating (30%) + review popularity (20%)
-    Max possible score = 100.
-    """
-    discount = min(product.get("discount", 0), 80)   # cap at 80%
-    discount_score = (discount / 80) * 50             # 0–50 pts
 
+def _stars(rating) -> str:
     try:
-        rating = float(str(product.get("rating", 0)).split("/")[0])
-    except (ValueError, TypeError):
-        rating = 0
-    rating_score = (rating / 5) * 30                  # 0–30 pts
-
-    try:
-        reviews = int(str(product.get("reviews", 0)).replace(",", ""))
-    except (ValueError, TypeError):
-        reviews = 0
-    # log scale: 1 review=0, 100=13.8, 1000=23, 10000=32.8 → cap at 20
-    import math
-    review_score = min(math.log1p(reviews) / math.log1p(10000) * 20, 20)
-
-    return round(discount_score + rating_score + review_score, 1)
+        n = min(round(float(str(rating).split("/")[0])), 5)
+        return "⭐" * n
+    except Exception:
+        return "⭐"
 
 
-def deal_badge(score: float) -> str:
-    if score >= 75:
-        return "🔥🔥 MEGA DEAL"
-    if score >= 55:
-        return "🔥 HOT DEAL"
-    if score >= 35:
-        return "✅ GOOD DEAL"
+def _badge(discount: int) -> str:
+    if discount >= 50: return "🔥🔥 MEGA DEAL"
+    if discount >= 30: return "🔥 HOT DEAL"
+    if discount >= 15: return "✅ GOOD DEAL"
     return "💡 DEAL"
 
 
-def product_card(product: dict, index: int = None) -> str:
-    """Format a single product as a Telegram message card."""
-    discount = product.get("discount", 0)
-    price = product.get("price", 0)
-    original = product.get("original_price", 0)
-    rating = product.get("rating", "N/A")
-    reviews = product.get("reviews", 0)
-    title = product.get("title", "Unknown Product")
-    url = product.get("url", "")
-    asin = product.get("asin", "")
+def _score(p: dict) -> float:
+    """Simple deal score: discount (50%) + rating (30%) + reviews (20%)."""
+    import math
+    d = min(p.get("discount", 0), 80)
+    try: r = float(str(p.get("rating", 0)).split("/")[0])
+    except: r = 0
+    try: rv = int(str(p.get("reviews", 0)).replace(",", ""))
+    except: rv = 0
+    return (d/80)*50 + (r/5)*30 + min(math.log1p(rv)/math.log1p(10000)*20, 20)
 
-    # Discount badge
-    badge = ""
-    if discount >= 30:
-        badge = "🔥 HOT DEAL"
-    elif discount >= MIN_DISCOUNT_PERCENT:
-        badge = "✅ DEAL"
 
-    prefix = f"**{index}.** " if index else ""
+# ── Product card ──────────────────────────────────────────
 
-    lines = [f"{prefix}🛒 **{title}**\n"]
+def _card(p: dict, rank: int = None) -> str:
+    title    = p.get("title", "")[:70]
+    price    = p.get("price", 0)
+    original = p.get("original", 0)
+    discount = p.get("discount", 0)
+    rating   = p.get("rating", "N/A")
+    reviews  = p.get("reviews", 0)
+    url      = p.get("url", "")
 
-    if badge:
-        lines.append(f"{badge} — **{discount}% OFF**")
+    lines = []
+    if rank:
+        lines.append(f"**#{rank} — {_badge(discount)}**")
+    else:
+        lines.append(f"**{_badge(discount)}**")
+
+    lines.append(f"📦 {title}")
 
     if original > price:
         lines.append(f"💰 ~~₹{original:,.0f}~~ → **₹{price:,.0f}**")
+        lines.append(f"📉 Save **₹{original-price:,.0f}** ({discount}% off)")
     else:
         lines.append(f"💰 **₹{price:,.0f}**")
 
     if rating != "N/A":
-        stars = "⭐" * min(int(float(str(rating))), 5) if str(rating).replace(".", "").isdigit() else "⭐"
-        lines.append(f"{stars} {rating}/5  ({reviews:,} reviews)")
+        try:
+            rv = int(str(reviews).replace(",",""))
+            lines.append(f"{_stars(rating)} {rating}/5  ({rv:,} reviews)")
+        except Exception:
+            lines.append(f"{_stars(rating)} {rating}/5")
 
     if url:
-        lines.append(f"[🔗 View on Amazon]({url})")
-
-    if asin:
-        lines.append(f"`ASIN: {asin}`")
+        lines.append(f"[🛒 Buy on Amazon]({url})")
 
     return "\n".join(lines)
 
 
-def search_results_message(keyword: str, products: list[dict]) -> str:
-    """Format multiple products as a search result message."""
-    if not products:
-        return f"😕 No results found for **{keyword}**.\n\nTry a different keyword."
+# ── Morning post ──────────────────────────────────────────
 
-    header = f"🔍 **Amazon Results: {keyword}**\n{'─' * 30}\n\n"
-    cards = []
-    for i, p in enumerate(products, 1):
-        cards.append(product_card(p, index=i))
-
-    return header + "\n\n".join(cards)
-
-
-def deal_channel_post(keyword: str, products: list[dict]) -> str:
-    """
-    Format a rich deals post for your Telegram channel.
-    Products are already sorted by score (best first).
-    """
+def morning_post(keyword: str, products: list[dict]) -> str:
     if not products:
         return ""
-
-    top = products[0]
-    top_score = score_deal(top)
-    badge = deal_badge(top_score)
+    date = _now().strftime("%d %B %Y")
+    top  = sorted(products, key=_score, reverse=True)[:4]
 
     lines = [
-        f"{badge}",
-        f"🛍️ **Amazon Deals — {keyword.title()}**",
-        f"{'─' * 28}\n",
+        f"🌅 **Good Morning! Amazon Deals**",
+        f"📅 {date}  •  🔎 {keyword.title()}",
+        "━━━━━━━━━━━━━━━━━━━━━━\n",
     ]
+    for i, p in enumerate(top, 1):
+        lines.append(_card(p, rank=i))
+        lines.append("\n" + ("─" * 24) + "\n")
 
-    for i, p in enumerate(products[:5], 1):
-        discount = p.get("discount", 0)
-        title = p.get("title", "")[:65]
-        price = p.get("price", 0)
-        original = p.get("original_price", 0)
-        rating = p.get("rating", "")
-        url = p.get("url", "")
-        sc = score_deal(p)
-
-        discount_tag = f"**{discount}% OFF**" if discount else ""
-        rating_tag = f"⭐{rating}" if rating and rating != "N/A" else ""
-
-        lines.append(f"**{i}. {title}**")
-        if original > price:
-            lines.append(f"   💰 ~~₹{original:,.0f}~~ → **₹{price:,.0f}**  {discount_tag}")
-        else:
-            lines.append(f"   💰 **₹{price:,.0f}**")
-
-        meta = "   "
-        if rating_tag:
-            meta += f"{rating_tag}  "
-        meta += f"📊 Score: {sc}/100"
-        lines.append(meta)
-
-        if url:
-            lines.append(f"   [🔗 Buy Now]({url})\n")
-
-    lines.append("💬 _Forward to someone who'd love this deal!_")
+    lines.append("💬 _Forward to save your friends money!_")
+    lines.append("🔔 _Turn on notifications for daily deals!_")
     return "\n".join(lines)
 
 
-def best_deals_summary(all_products: list[dict], top_n: int = 3) -> str:
-    """
-    Pick the absolute best N deals across all keywords and format
-    as a single 'Best of the Day' channel post.
-    """
+# ── Evening summary ───────────────────────────────────────
+
+def evening_post(all_products: list[dict]) -> str:
     if not all_products:
         return ""
+    top   = sorted(all_products, key=_score, reverse=True)[:3]
+    date  = _now().strftime("%d %B")
 
-    scored = sorted(all_products, key=score_deal, reverse=True)
-    top = scored[:top_n]
-
-    lines = [
-        "🏆 **Best Amazon Deals Right Now**",
-        f"{'─' * 30}\n",
+    medals = ["🥇", "🥈", "🥉"]
+    lines  = [
+        f"🌙 **Best Deals of the Day — {date}**",
+        "🏆 Top 3 picks from today",
+        "━━━━━━━━━━━━━━━━━━━━━━\n",
     ]
-
-    for i, p in enumerate(top, 1):
-        sc = score_deal(p)
-        badge = deal_badge(sc)
-        title = p.get("title", "")[:65]
-        price = p.get("price", 0)
-        original = p.get("original_price", 0)
+    for i, p in enumerate(top):
+        title    = p.get("title","")[:65]
+        price    = p.get("price", 0)
+        original = p.get("original", 0)
         discount = p.get("discount", 0)
-        rating = p.get("rating", "")
-        url = p.get("url", "")
+        url      = p.get("url","")
 
-        lines.append(f"{badge}  #{i}")
-        lines.append(f"📦 **{title}**")
+        lines.append(f"{medals[i]} **{title}**")
         if original > price:
-            lines.append(f"💰 ~~₹{original:,.0f}~~ → **₹{price:,.0f}**  ({discount}% off)")
+            lines.append(f"   💰 ~~₹{original:,.0f}~~ → **₹{price:,.0f}** ({discount}% off)")
         else:
-            lines.append(f"💰 **₹{price:,.0f}**")
-        if rating and rating != "N/A":
-            lines.append(f"⭐ {rating}/5  |  Score: {sc}/100")
+            lines.append(f"   💰 **₹{price:,.0f}**")
         if url:
-            lines.append(f"[🛒 Grab it here]({url})\n")
+            lines.append(f"   [Buy Now]({url})")
+        lines.append("")
 
-    lines.append("📲 _Share this with your friends!_")
+    lines += [
+        "━━━━━━━━━━━━━━━━━━━━━━",
+        "📲 _Share with your squad!_ 👇",
+    ]
     return "\n".join(lines)
 
 
-def price_drop_alert(product: dict, old_price: float, new_price: float) -> str:
-    """Alert message for a price drop on a tracked product."""
-    drop = old_price - new_price
-    drop_pct = round((drop / old_price) * 100) if old_price > 0 else 0
-    title = product.get("title", "Your tracked product")
-    url = product.get("url", "")
+# ── Flash sale alert ──────────────────────────────────────
 
-    return (
-        f"🚨 **Price Drop Alert!**\n\n"
-        f"📦 {title}\n\n"
-        f"💸 ~~₹{old_price:,.0f}~~ → **₹{new_price:,.0f}**\n"
-        f"📉 Dropped by ₹{drop:,.0f} ({drop_pct}% off)\n\n"
-        f"[🔗 Buy Now]({url})"
-    )
+def flash_post(products: list[dict]) -> str:
+    hot = [p for p in products if p.get("discount", 0) >= 40]
+    if not hot:
+        return ""
+    hot = sorted(hot, key=_score, reverse=True)[:3]
+
+    lines = [
+        "⚡ **FLASH SALE ALERT!** ⚡",
+        f"🔥 {len(hot)} products with **40%+ OFF** right now!",
+        "━━━━━━━━━━━━━━━━━━━━━━\n",
+    ]
+    for p in hot:
+        title    = p.get("title","")[:65]
+        price    = p.get("price", 0)
+        original = p.get("original", 0)
+        discount = p.get("discount", 0)
+        url      = p.get("url","")
+
+        lines.append(f"🔴 **{title}**")
+        lines.append(f"   ~~₹{original:,.0f}~~ → **₹{price:,.0f}** 🔥 **{discount}% OFF**")
+        if url:
+            lines.append(f"   [⚡ Grab it!]({url})")
+        lines.append("")
+
+    lines += ["⏰ _Limited time — act now!_", "📲 _Tag a friend who needs this!_"]
+    return "\n".join(lines)
