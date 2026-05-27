@@ -154,6 +154,31 @@ async def check_price_drops(client: Client):
                     logger.warning(f"Failed to send alert to {user_id}: {e}")
 
 
+async def check_apify_credits(client: Client):
+    """
+    Daily check: warn owner if Apify credits are running low (< 20% left).
+    """
+    from config import OWNER_ID
+    from bot.services.apify_stats import get_usage_stats, format_usage_message
+
+    logger.info("💳 Checking Apify credit balance...")
+    try:
+        stats = await get_usage_stats()
+        pct = stats.get("usage_pct", 0)
+
+        if pct >= 80:
+            text = (
+                f"⚠️ **Apify Credit Alert!**\n\n"
+                f"You've used **{pct}%** of your monthly credits!\n"
+                f"Remaining: **${stats['remaining_usd']:.4f}**\n\n"
+                f"Use /apifyusage for full details."
+            )
+            await client.send_message(OWNER_ID, text)
+            logger.warning(f"Sent low-credit alert to owner (usage: {pct}%)")
+    except Exception as e:
+        logger.error(f"check_apify_credits error: {e}")
+
+
 def setup_scheduler(app: Client) -> AsyncIOScheduler:
     """Create and start the APScheduler with all jobs."""
     scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
@@ -177,6 +202,17 @@ def setup_scheduler(app: Client) -> AsyncIOScheduler:
         args=[app],
         id="check_price_drops",
         name="Price Drop Checker",
+        misfire_grace_time=600,
+    )
+
+    # Daily Apify credit check (warns owner if < 20% left)
+    scheduler.add_job(
+        check_apify_credits,
+        trigger="interval",
+        hours=24,
+        args=[app],
+        id="check_apify_credits",
+        name="Apify Credit Monitor",
         misfire_grace_time=600,
     )
 
