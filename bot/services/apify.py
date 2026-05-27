@@ -40,9 +40,10 @@ async def search_amazon(keyword: str, max_results: int = MAX_RESULTS) -> list[di
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
-        # Start Actor run
+        # Start Actor run — note: actor ID uses ~ not / in URL
+        actor_url_id = AMAZON_ACTOR_ID.replace("/", "~")
         resp = await client.post(
-            f"{APIFY_BASE}/acts/{AMAZON_ACTOR_ID}/runs",
+            f"{APIFY_BASE}/acts/{actor_url_id}/runs",
             headers=HEADERS,
             json=payload,
         )
