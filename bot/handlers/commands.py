@@ -77,11 +77,17 @@ def register_handlers(app: Client):
         await log_search(message.from_user.id, keyword, len(products))
 
         if not products:
-            await status_msg.edit(f"😕 No results found for **{keyword}**. Try a different keyword.")
+            try:
+                await status_msg.edit(f"😕 No results found for **{keyword}**. Try a different keyword.")
+            except Exception:
+                pass
             return
 
         result_text = search_results_message(keyword, products)
-        await status_msg.edit(result_text, disable_web_page_preview=True)
+        try:
+            await status_msg.edit(result_text, disable_web_page_preview=True)
+        except Exception:
+            await message.reply(result_text, disable_web_page_preview=True)
 
     # ── /deals ────────────────────────────────────────────
     @app.on_message(filters.command("deals"))
