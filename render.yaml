@@ -7,6 +7,8 @@ services:
     envVars:
       - key: PORT
         value: "8000"
+      - key: PYTHONUNBUFFERED
+        value: "1"
       - key: API_ID
         sync: false
       - key: API_HASH
