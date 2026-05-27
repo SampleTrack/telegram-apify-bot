@@ -79,18 +79,33 @@ async def search_amazon(keyword: str, max_results: int = MAX_RESULTS) -> list[di
         return items
 
 
+def _extract_price(raw_val) -> float:
+    """Handle price as dict {'value': 1499, 'currency': ''} or plain string/number."""
+    if raw_val is None:
+        return 0.0
+    if isinstance(raw_val, dict):
+        return float(raw_val.get("value") or raw_val.get("amount") or 0)
+    if isinstance(raw_val, (int, float)):
+        return float(raw_val)
+    # String — strip currency symbols
+    cleaned = str(raw_val).replace("₹", "").replace(",", "").replace("$", "").strip()
+    try:
+        return float(cleaned)
+    except ValueError:
+        return 0.0
+
+
 def parse_product(raw: dict) -> dict | None:
     """Normalize raw Apify Amazon data into a clean product dict."""
     try:
         title = raw.get("title") or raw.get("name") or ""
-        price_str = str(raw.get("price") or raw.get("currentPrice") or "0")
-        price_str = price_str.replace("₹", "").replace(",", "").strip()
 
-        original_str = str(raw.get("originalPrice") or raw.get("listPrice") or price_str)
-        original_str = original_str.replace("₹", "").replace(",", "").strip()
-
-        price = float(price_str) if price_str else 0
-        original = float(original_str) if original_str else price
+        price = _extract_price(
+            raw.get("price") or raw.get("currentPrice") or raw.get("salePrice")
+        )
+        original = _extract_price(
+            raw.get("originalPrice") or raw.get("listPrice") or raw.get("mrp") or price
+        )
 
         discount = 0
         if original > 0 and price < original:
