@@ -9,7 +9,7 @@ APIFY_BASE = "https://api.apify.com/v2"
 HEADERS = {"Authorization": f"Bearer {APIFY_TOKEN}"}
 
 
-async def _wait_for_run(run_id: str, timeout: int = 60) -> bool:
+async def _wait_for_run(run_id: str, timeout: int = 120) -> bool:
     """Poll Apify until the Actor run finishes or times out."""
     url = f"{APIFY_BASE}/actor-runs/{run_id}"
     async with httpx.AsyncClient(timeout=30) as client:
