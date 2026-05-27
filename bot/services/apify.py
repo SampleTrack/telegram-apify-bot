@@ -33,9 +33,13 @@ async def search_amazon(keyword: str, max_results: int = MAX_RESULTS) -> list[di
     """
     logger.info(f"Starting Apify Amazon search: '{keyword}'")
 
+    # Convert keyword to Amazon India search URL
+    import urllib.parse
+    search_url = f"https://www.amazon.in/s?k={urllib.parse.quote_plus(keyword)}"
+
     payload = {
-        "searchKeyword": keyword,
-        "maxResults": max_results,
+        "categoryUrls": [{"url": search_url}],
+        "maxItems": max_results,
         "useStealth": False,
     }
 
